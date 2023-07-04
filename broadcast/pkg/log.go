@@ -4,7 +4,7 @@ import "sync"
 
 func newLog[T any]() *appendOnlyLog[T] {
 	return &appendOnlyLog[T]{
-		log: make([]T, 0, 64),
+		log: make([]T, 0, kInitCapacity),
 	}
 }
 
