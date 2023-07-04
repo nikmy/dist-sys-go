@@ -13,10 +13,10 @@ type appendOnlyLog[T any] struct {
 	log []T
 }
 
-func (l *appendOnlyLog[T]) Append(value T) {
+func (l *appendOnlyLog[T]) Append(values ...T) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.log = append(l.log, value)
+	l.log = append(l.log, values...)
 }
 
 func (l *appendOnlyLog[T]) Snapshot() []T {

@@ -1,15 +1,19 @@
 package broadcast
 
 import (
+	"context"
 	"encoding/json"
+	"sync"
+	"time"
 
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 )
 
 func NewHandler(node *maelstrom.Node) *handler {
 	h := &handler{
-		log:  newLog[int64](),
-		node: node,
+		log:         newLog[int64](),
+		node:        node,
+		undelivered: make(map[string][]int64, 64),
 	}
 
 	node.Handle("broadcast", h.broadcast)
@@ -25,12 +29,17 @@ func NewHandler(node *maelstrom.Node) *handler {
 type handler struct {
 	log  *appendOnlyLog[int64]
 	node *maelstrom.Node
+
+	undelivered map[string][]int64
+	mu          sync.Mutex
 }
 
 type msgBodyBroadcast struct {
 	Type    string `json:"type"`
-	Message *int64 `json:"message,omitempty"`
+	Message int64  `json:"message,omitempty"`
 	Resent  bool   `json:"resent,omitempty"`
+
+	Missed []int64 `json:"missed,omitempty"`
 }
 
 type msgBodyRead struct {
@@ -56,16 +65,37 @@ func (h *handler) broadcast(msg maelstrom.Message) error {
 	if err := json.Unmarshal(msg.Body, &body); err != nil {
 		return err
 	}
-	if body.Message != nil {
-		h.log.Append(*body.Message)
-		if !body.Resent {
-			body.Resent = true
-			for _, n := range h.node.NodeIDs() {
-				n := n
-				go func() {
-					_ = h.node.Send(n, body)
-				}()
-			}
+	if body.Missed != nil {
+		h.log.Append(body.Missed...)
+	}
+
+	h.log.Append(body.Message)
+
+	if !body.Resent {
+		body.Resent = true
+		for _, n := range h.node.NodeIDs() {
+			n := n
+			body := body
+			go func() {
+				// If we have undelivered messages for node, try to send them all
+				h.mu.Lock()
+				missed, haveMissed := h.undelivered[n]
+				if haveMissed {
+					delete(h.undelivered, n)
+					body.Missed = missed
+				}
+				h.mu.Unlock()
+
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				defer cancel()
+
+				if _, err := h.node.SyncRPC(ctx, n, body); err != nil {
+					h.mu.Lock()
+					h.undelivered[n] = append(h.undelivered[n], body.Missed...)
+					h.undelivered[n] = append(h.undelivered[n], body.Message)
+					h.mu.Unlock()
+				}
+			}()
 		}
 	}
 	return h.node.Reply(msg, map[string]string{"type": "broadcast_ok"})
