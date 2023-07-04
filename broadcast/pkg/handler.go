@@ -2,7 +2,6 @@ package broadcast
 
 import (
 	"encoding/json"
-	"sync"
 
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 )
@@ -17,32 +16,39 @@ func NewHandler(node *maelstrom.Node) *handler {
 	node.Handle("read", h.read)
 	node.Handle("topology", h.topology)
 
+	node.Handle("broadcast_ok", h.noAction)
+	node.Handle("topology_ok", h.noAction)
+
 	return h
 }
 
 type handler struct {
 	log  *appendOnlyLog[int64]
 	node *maelstrom.Node
-	topM sync.Mutex
 }
 
 type msgBodyBroadcast struct {
-	Type    string `json:"type,omitempty"`
+	Type    string `json:"type"`
 	Message *int64 `json:"message,omitempty"`
+	Resent  bool   `json:"resent,omitempty"`
 }
 
 type msgBodyRead struct {
-	Type     string  `json:"type,omitempty"`
-	Messages []int64 `json:"messages,omitempty"`
+	Type     string  `json:"type"`
+	Messages []int64 `json:"messages"`
 }
 
 type msgBodyTopology struct {
-	Type     string              `json:"type,omitempty"`
-	Topology map[string][]string `json:"topology,omitempty"`
+	Type     string              `json:"type"`
+	Topology map[string][]string `json:"topology"`
 }
 
 func (h *handler) Run() error {
 	return h.node.Run()
+}
+
+func (h *handler) noAction(maelstrom.Message) error {
+	return nil
 }
 
 func (h *handler) broadcast(msg maelstrom.Message) error {
@@ -52,6 +58,15 @@ func (h *handler) broadcast(msg maelstrom.Message) error {
 	}
 	if body.Message != nil {
 		h.log.Append(*body.Message)
+		if !body.Resent {
+			body.Resent = true
+			for _, n := range h.node.NodeIDs() {
+				n := n
+				go func() {
+					_ = h.node.Send(n, body)
+				}()
+			}
+		}
 	}
 	return h.node.Reply(msg, map[string]string{"type": "broadcast_ok"})
 }
@@ -71,9 +86,5 @@ func (h *handler) topology(msg maelstrom.Message) error {
 	if err := json.Unmarshal(msg.Body, &body); err != nil {
 		return err
 	}
-	id := h.node.ID()
-	h.topM.Lock()
-	h.node.Init(id, body.Topology[id])
-	h.topM.Unlock()
 	return h.node.Reply(msg, map[string]string{"type": "topology_ok"})
 }
