@@ -22,9 +22,6 @@ func NewHandler(ctx context.Context, node *maelstrom.Node) *handler {
 	node.Handle("topology", h.topology)
 	node.Handle("init", h.init)
 
-	node.Handle("broadcast_ok", h.noAction)
-	node.Handle("topology_ok", h.noAction)
-
 	return h
 }
 
@@ -58,7 +55,7 @@ func (h *handler) init(maelstrom.Message) error {
 	for _, follower := range h.node.NodeIDs() {
 		follower := follower
 		go func() {
-			ticker := time.NewTicker(kUpdateIntervalMillis * time.Millisecond)
+			ticker := time.NewTicker(kUpdateInterval)
 			for {
 				select {
 				case <-ticker.C:
@@ -96,7 +93,7 @@ func (h *handler) updateFollower(follower string) {
 	}
 
 	// Try to send them all to the follower
-	ctx, cancel := context.WithTimeout(h.ctx, kTimeoutMillis*time.Millisecond)
+	ctx, cancel := context.WithTimeout(h.ctx, kRPCTimeout)
 	defer cancel()
 
 	if _, err := h.node.SyncRPC(ctx, follower, body); err != nil {
@@ -151,8 +148,4 @@ func (h *handler) topology(req maelstrom.Message) error {
 
 func (h *handler) Run() error {
 	return h.node.Run()
-}
-
-func (h *handler) noAction(maelstrom.Message) error {
-	return nil
 }

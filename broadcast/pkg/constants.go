@@ -1,9 +1,11 @@
 package broadcast
 
+import "time"
+
 const (
-	kClusterSize          = 25
-	kInitCapacity         = 64
-	kTimeoutMillis        = 1000
-	kUpdateIntervalMillis = 800
-	kMaxMessagesToSend    = 192
+	kClusterSize       = 25
+	kInitCapacity      = 64
+	kRPCTimeout        = time.Second
+	kUpdateInterval    = 800 * time.Millisecond
+	kMaxMessagesToSend = 192
 )
