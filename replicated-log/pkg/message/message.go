@@ -1,4 +1,4 @@
-package main
+package kafka
 
 type SendRequest struct {
 	Type string `json:"type"`

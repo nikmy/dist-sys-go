@@ -1,4 +1,4 @@
-package main
+package kafka
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 )
 
-func NewHandler(ctx context.Context, node *maelstrom.Node, log Log) *handler {
+func NewHandler(ctx context.Context, node *maelstrom.Node, log LogStorage) *handler {
 	h := &handler{
 		ctx:  ctx,
 		node: node,
@@ -23,7 +23,7 @@ func NewHandler(ctx context.Context, node *maelstrom.Node, log Log) *handler {
 type handler struct {
 	node *maelstrom.Node
 	ctx  context.Context
-	log  Log
+	log  LogStorage
 }
 
 func (h *handler) Run() error {

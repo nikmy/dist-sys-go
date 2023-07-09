@@ -22,9 +22,10 @@ func NewHandler(ctx context.Context, node *maelstrom.Node) *handler {
 }
 
 type handler struct {
-	node *maelstrom.Node
-	ctx  context.Context
-	kv   *maelstrom.KV
+	local state
+	node  *maelstrom.Node
+	ctx   context.Context
+	kv    *maelstrom.KV
 }
 
 func (h *handler) Run() error {
@@ -37,28 +38,7 @@ func (h *handler) add(req maelstrom.Message) error {
 		return err
 	}
 
-	for {
-		ctx, cancel := context.WithTimeout(h.ctx, kKVTimeout)
-		value, err := h.kv.ReadInt(ctx, kCounterKey)
-		cancel()
-		if err != nil {
-			return err
-		}
-
-		ctx, cancel = context.WithTimeout(h.ctx, kKVTimeout)
-		err = h.kv.CompareAndSwap(ctx, kCounterKey, value, body.Delta+value, false)
-		cancel()
-
-		if err == nil {
-			break
-		}
-
-		if rpcErr, ok := err.(*maelstrom.RPCError); ok && rpcErr.Code == maelstrom.PreconditionFailed {
-			time.Sleep(time.Duration(rand.Float32() * kMaxBackoffTime))
-		} else {
-			return err
-		}
-	}
+	h.local.Add(body.Delta)
 
 	return h.node.Reply(req, map[string]string{"type": "add_ok"})
 }
@@ -69,22 +49,61 @@ func (h *handler) read(req maelstrom.Message) error {
 		return err
 	}
 
-	ctx, cancel := context.WithTimeout(h.ctx, kKVTimeout)
-	defer cancel()
-	value, err := h.kv.ReadInt(ctx, kCounterKey)
-
-	if err != nil {
-		return err
-	}
-
-	body.Value = value
+	body.Value = h.local.Get()
 	body.Type = "read_ok"
 
 	return h.node.Reply(req, body)
 }
 
 func (h *handler) init(maelstrom.Message) error {
-	ctx, cancel := context.WithTimeout(h.ctx, kKVTimeout)
+	go func() {
+		ticker := time.NewTicker(kUpdateInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				h.sync()
+			case <-h.ctx.Done():
+				return
+			}
+		}
+	}()
+	return nil
+}
+
+func (h *handler) sync() {
+	// "freeze" the state
+	h.local.Lock()
+	defer h.local.Unlock()
+
+	// obtain delta
+	delta := h.local.SwapDelta()
+
+	ctx, cancel := context.WithTimeout(h.ctx, kSyncTimeout)
 	defer cancel()
-	return h.kv.CompareAndSwap(ctx, kCounterKey, 0, 0, true)
+
+	old, err := h.kv.ReadInt(ctx, kCounterKey)
+	if err != nil && !KeyDoesNotExists(err) {
+		// fail, roll back delta
+		h.local.Add(delta)
+		return
+	}
+
+	for {
+		err := h.kv.CompareAndSwap(ctx, kCounterKey, old, old+int(delta), true)
+		if err == nil || KeyDoesNotExists(err) {
+			break
+		}
+
+		if !PreconditionFailed(err) {
+			// fail, roll back delta
+			h.local.Add(delta)
+			return
+		}
+
+		time.Sleep(time.Duration(rand.Float32() * kMaxBackoffTime))
+	}
+
+	// update cached value
+	h.local.SetCache(int32(old) + delta)
 }
