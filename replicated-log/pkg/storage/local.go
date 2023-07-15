@@ -1,14 +1,16 @@
-package kafka
+package storage
 
 import (
 	"context"
 	"sync"
+
+	"kafka/pkg/log"
 )
 
-func NewLocalStorage() *localStorage {
+func NewLocal() *localStorage {
 	return &localStorage{
 		offsets:  map[string]int{},
-		messages: map[string][]int64{},
+		messages: map[string][]int{},
 	}
 }
 
@@ -16,28 +18,28 @@ type localStorage struct {
 	m        sync.RWMutex
 	o        sync.RWMutex
 	offsets  map[string]int
-	messages map[string][]int64
+	messages map[string][]int
 }
 
-func (l *localStorage) Send(ctx context.Context, key string, msg int64) (int, error) {
+func (l *localStorage) Send(ctx context.Context, key string, msg int) (int, error) {
 	l.m.Lock()
 	defer l.m.Unlock()
 	l.messages[key] = append(l.messages[key], msg)
 	return len(l.messages[key]) - 1, nil
 }
 
-func (l *localStorage) Poll(_ context.Context, key string, offset int) ([]LogEntry, error) {
+func (l *localStorage) Poll(_ context.Context, key string, offset int) ([]log.Entry, error) {
 	l.m.RLock()
 	msgs := l.messages[key]
 	l.m.RUnlock()
 
 	if offset >= len(msgs) {
-		return []LogEntry{}, nil
+		return []log.Entry{}, nil
 	}
 
-	entries := make([]LogEntry, 0, len(msgs[offset:]))
+	entries := make([]log.Entry, 0, len(msgs[offset:]))
 	for j, msg := range msgs[offset:] {
-		entries = append(entries, LogEntry{Offset: j + offset, Message: msg})
+		entries = append(entries, log.Entry{Offset: j + offset, Message: msg})
 	}
 
 	return entries, nil

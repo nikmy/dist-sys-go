@@ -1,9 +1,11 @@
-package kafka
+package message
+
+import "kafka/pkg/log"
 
 type SendRequest struct {
 	Type string `json:"type"`
 	Key  string `json:"key"`
-	Msg  int64  `json:"msg"`
+	Msg  int    `json:"msg"`
 }
 
 type SendOk struct {
@@ -17,8 +19,8 @@ type PollRequest struct {
 }
 
 type PollOk struct {
-	Type string                `json:"type"`
-	Msgs map[string][]LogEntry `json:"msgs"`
+	Type string                 `json:"type"`
+	Msgs map[string][]log.Entry `json:"msgs"`
 }
 
 type CommitOffsetsRequest struct {
@@ -44,7 +46,7 @@ func NewSendOk(offset int) SendOk {
 	return SendOk{Type: "send_ok", Offset: offset}
 }
 
-func NewPollOk(msgs map[string][]LogEntry) *PollOk {
+func NewPollOk(msgs map[string][]log.Entry) *PollOk {
 	return &PollOk{Type: "poll_ok", Msgs: msgs}
 }
 

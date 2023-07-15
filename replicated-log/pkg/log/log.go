@@ -1,22 +1,33 @@
-package kafka
+package log
 
 import (
 	"context"
 	"encoding/json"
 )
 
-type LogEntry struct {
+type Entry struct {
+	Valid   bool
 	Offset  int
-	Message int64
+	Message int
 }
 
-func (l LogEntry) MarshalJSON() ([]byte, error) {
-	return json.Marshal([2]int64{int64(l.Offset), l.Message})
+func (e *Entry) UnmarshalJSON(bytes []byte) error {
+	var row []int
+	if err := json.Unmarshal(bytes, &row); err != nil {
+		return err
+	}
+	e.Offset, e.Message = row[0], row[1]
+	e.Valid = true
+	return nil
 }
 
-type LogStorage interface {
-	Send(ctx context.Context, key string, msg int64) (int, error)
-	Poll(ctx context.Context, key string, offset int) ([]LogEntry, error)
+func (e *Entry) MarshalJSON() ([]byte, error) {
+	return json.Marshal([]int{e.Offset, e.Message})
+}
+
+type Storage interface {
+	Send(ctx context.Context, key string, msg int) (int, error)
+	Poll(ctx context.Context, key string, offset int) ([]Entry, error)
 	Commit(ctx context.Context, key string, offset int) error
 	GetCommittedOffset(ctx context.Context, key string) (int, error)
 }
